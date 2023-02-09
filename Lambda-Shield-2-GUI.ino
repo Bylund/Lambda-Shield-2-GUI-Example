@@ -62,13 +62,13 @@
 int adcValue_UA = 0;                                                /* ADC value read from the CJ125 UA output pin */ 
 int adcValue_UR = 0;                                                /* ADC value read from the CJ125 UR output pin */
 int adcValue_UB = 0;                                                /* ADC value read from the voltage divider caluclating Ubat */
-int adcValue_UA_Optimal = 0;                                        /* UA ADC value stored when CJ125 is in calibration mode, λ=1 */ 
+int adcValue_UA_Optimal = 307;                                      /* UA ADC value stored when CJ125 is in calibration mode, λ=1, this will be used ad offset respcet to nominal curve */ 
 int adcValue_UR_Optimal = 0;                                        /* UR ADC value stored when CJ125 is in calibration mode, optimal temperature */
 int HeaterOutput = 0;                                               /* Current PWM output value (0-255) of the heater output pin */
 int CJ125_Status = 0;                                               /* Latest stored DIAG registry response from the CJ125 */
 int serial_counter = 0;                                             /* Counter used to calculate refresh rate on the serial output */
 int HeaterStatus = 0;                                               /* Defines the heater status for the GUI front-end */
-
+unsigned long adcValue_UA_AVG = 0;                                  /* Average accumulator, used to smooth ADC and PID oscillation */ 
 //PID regulation variables.
 int dState;                                                         /* Last position input. */
 int iState;                                                         /* Integrator state. */
@@ -213,7 +213,7 @@ float Lookup_Lambda(int Input_ADC) {
 
     //Validate ADC range for lookup table.
     if (Input_ADC >= 39 && Input_ADC <= 791) {
-      LAMBDA_VALUE = pgm_read_float_near(Lambda_Conversion + (Input_ADC-39));
+      LAMBDA_VALUE = pgm_read_float_near(Lambda_Conversion + (Input_ADC- 39 + 307 - adcValue_UA_Optimal));
     }
     
     if (Input_ADC > 791) {
@@ -524,7 +524,12 @@ void loop() {
 
   //Display on serial port at defined rate. Comma separate values, readable by frontends.
   if ( (100 / SERIAL_RATE) ==  serial_counter) {
-
+    //Add to accumulator last value
+    adcValue_UA_AVG=adcValue_UA_AVG+adcValue_UA;
+    //Calculate the average
+    adcValue_UA=adcValue_UA_AVG/(serial_counter);
+    //Reset accumulator
+    adcValue_UA_AVG=0;
     //Reset counter.
     serial_counter = 0;
 
@@ -532,6 +537,12 @@ void loop() {
     UpdateUI();
 
   }
+    else{
+     //Add to accumulator last value
+     adcValue_UA_AVG=adcValue_UA_AVG+adcValue_UA;
+  
+  }
+
 
   //Adjust PWM output by calculated PID regulation.
   if (adcValue_UR < 500 && adcValue_UB > UBAT_MIN) {
@@ -547,7 +558,7 @@ void loop() {
     
   }
 
-  //Increment serial output counter and delay for next cycle. The PID requires to be responsive but we don't need to flood the serial port.
+  //Increment serial output counter and delay for next cycle. The PID requires to be responsive but we don't need to flood the serial port, so we just update average accumulator
   serial_counter++;
   delay(10);
 
